@@ -82,7 +82,16 @@
   var revertFrom;         // Revert away from this on backspace
   var justAutoCorrected;  // Was last change an auto correction?
   var correctionDisabled; // Temporarily diabled after reverting?
+  var lastWord="";        // Last word typed
+  var lastLastWord="";    // Last last word typed
 
+  var personalDict = {
+   '_': { 'Hola': 3, 'Hey':2 },
+   'Hola': {'que':3, 'soy':2 },
+   'que': {'tal':3, 'dices':2}, 
+   'Que': {'tal':3, 'dices':2}, 
+  };
+  
   // Terminate the worker when the keyboard is inactive for this long.
   const workerTimeout = 30000;  // 30 seconds of idle time
 
@@ -312,6 +321,11 @@
       case SEMICOLON:
         // These keys may trigger word or punctuation corrections
         handleCorrections(keycode);
+        lastLastWord = lastWord;
+        console.log('LastLast:'+lastLastWord);
+        lastWord = wordBeforeCursor();
+        console.log('last:'+lastWord);
+        updatePDict(lastLastWord, lastWord);
         correctionDisabled = false;
         break;
 
@@ -321,6 +335,7 @@
 
       default:
         handleKey(keycode);
+        lastWord = wordBeforeCursor();
       }
     }
 
@@ -539,7 +554,7 @@
     // these suggestions. That is, if the user has typed faster than we could
     // offer suggestions, ignore them.
     if (suggestions.length === 0 || wordBeforeCursor() !== input) {
-      keyboard.sendCandidates([]); // Clear any displayed suggestions
+      keyboard.sendCandidates([getGuess(lastLastWord)]);
       return;
     }
 
@@ -620,8 +635,13 @@
     // we can re-enable it now.
     correctionDisabled = false;
 
+    lastLastWord = lastWord;
+    console.log('LastLast'+lastLastWord);
+    lastWord=word;
+    console.log('Last'+lastWord);
     // Clear the suggestions
-    keyboard.sendCandidates([]);
+    keyboard.sendCandidates([getGuess(lastLastWord)]);
+    updatePDict(lastLastWord, lastWord);
 
     // And update the keyboard capitalization state, if necessary
     updateCapitalization();
@@ -717,6 +737,52 @@
       }
     }
   }
+
+  
+function trim1 (str) {
+    return str.replace(/^\s\s*/, '').replace(/\s\s*$/, '');
+}
+
+
+function updatePDict(lastLastWord, lastWord){
+    lastLastWord = trim1(lastLastWord);
+    lastWord = trim1(lastWord);
+    console.log(lastLastWord+' '+lastWord);
+    if (lastLastWord === '')
+        lastLastWord = '_';
+    if ( personalDict[lastLastWord]===undefined){
+       personalDict[lastLastWord] = {};
+    }  
+    if (personalDict[lastLastWord][lastWord] === undefined){
+        personalDict[lastLastWord][lastWord] = 1;
+    }else{
+        personalDict[lastLastWord][lastWord] = personalDict[lastLastWord][lastWord]+1;
+    }
+
+}
+
+function getGuess(typedWord){
+    console.log('guessFor:'+typedWord);
+    //if (personalDict[typedWord] === undefined ||
+    if(typedWord===''){
+        typedWord = '_';
+    }
+
+    var max = 0;
+    var prediction ='';
+    var word = personalDict[typedWord];
+    for (var i in word){
+        if (word[i] > max){
+            max = word[i];
+            prediction = i;
+        }    
+        console.log('i:'+i);
+        console.log('max:'+max);
+        console.log('prediction:'+prediction);
+    }
+    return prediction;
+
+}
 
   function updateSuggestions(repeat) {
     // If the user hasn't enabled suggestions, or if they're not appropriate
