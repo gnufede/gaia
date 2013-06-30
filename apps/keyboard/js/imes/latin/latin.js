@@ -377,10 +377,12 @@
         console.log('LastLast:'+lastLastWord);
         console.log('last:'+lastWord);
         updatePDict(lastLastLastWord+' '+lastLastWord, lastWord);
+        updatePDict(lastLastWord, lastWord);
         if (cursor != inputText.length){
           nextWord = getNextWord();
             console.log("nextword:"+nextWord);
           updatePDict(lastLastWord+' '+lastWord, nextWord);
+          updatePDict(lastWord, nextWord);
         }
         cursor = oldCursor;
 
@@ -595,7 +597,7 @@
     // these suggestions. That is, if the user has typed faster than we could
     // offer suggestions, ignore them.
     if (suggestions.length === 0 || wordBeforeCursor() !== input) {
-      keyboard.sendCandidates(getGuess(lastLastWord+" "+lastWord));
+      keyboard.sendCandidates(getGuess(lastLastWord, lastWord));
       return;
     }
 
@@ -680,12 +682,14 @@
     lastLastWord = lastWord;
     lastWord=word;
     updatePDict(lastLastLastWord+" "+lastLastWord, lastWord);
+    updatePDict(lastLastWord, lastWord);
     if (cursor != inputText.length){
       nextWord = getNextWord();
       updatePDict(lastLastWord+" "+lastWord, nextWord);
+      updatePDict(lastWord, nextWord);
     }
     // Clear the suggestions
-    keyboard.sendCandidates(getGuess(lastLastWord+" "+lastWord));
+    keyboard.sendCandidates(getGuess(lastLastWord, lastWord));
 
     // And update the keyboard capitalization state, if necessary
     updateCapitalization();
@@ -940,6 +944,7 @@
   
  function updatePDict(lastLastWord, lastWord){
     try {
+    var word_index = -1;
       lastLastWord = trim1(lastLastWord);
       lastWord = trim1(lastWord);
       if (lastWord != ''){ 
@@ -948,13 +953,17 @@
         }
         console.log('update: '+lastLastWord+' '+lastWord);
         if ( personalDict[lastLastWord]===undefined){
-         personalDict[lastLastWord] = {};
+         personalDict[lastLastWord] = [];
         }  
-        if (personalDict[lastLastWord][lastWord] === undefined){
-          personalDict[lastLastWord][lastWord] = 1;
+            word_index = personalDict[lastLastWord].indexOf(lastWord);
+        if ( word_index != -1){
+            personalDict[lastLastWord].splice(word_index,1);
         }else{
-            personalDict[lastLastWord][lastWord] = personalDict[lastLastWord][lastWord]+1;
+            if (personalDict[lastLastWord].length === 3){
+                personalDict[lastLastWord].pop(); 
+            }
         }
+        personalDict[lastLastWord].unshift(lastWord);
       }else{
         lastWord = lastLastWord;
       }
@@ -966,26 +975,41 @@
   
    }
 
- function getGuess(typedWord){
+ function getGuess(lastTypedWord, typedWord){
+    lastTypedWord = trim1(lastTypedWord);
     typedWord = trim1(typedWord);
+    if(lastTypedWord===''){
+        lastTypedWord = '_';
+    }
     if(typedWord===''){
         typedWord = '_';
     }
-    console.log('getGuess: '+typedWord);
+    console.log('getGuess: '+lastTypedWord+' '+typedWord);
+    if (personalDict[lastTypedWord+' '+typedWord] === undefined) {
+       personalDict[lastTypedWord+' '+typedWord] = [];
+    }
+    if (personalDict[typedWord] === undefined) {
+       personalDict[typedWord] = [];
+    }
+    var twoWords = personalDict[lastTypedWord+' '+typedWord].concat();
+    console.log(twoWords.length);
+    
+    if (twoWords.length < 3){
+      twoWords = arrayUnique(twoWords.concat(personalDict[typedWord]));
+    }
+    console.log(twoWords);
+    return twoWords;
 
-    var predictions =[];
-    var word = personalDict[typedWord];
-    for (var i = 0; i<3; i++){
-        var max = 0;
-        for (var j in word){
-            if (predictions.indexOf(j) == -1){
-              if (word[j] > max){
-                  max = word[j];
-                  predictions.push(j);
-              }
-            }
+    function arrayUnique(array) {
+    var a = array.concat();
+    for(var i=0; i<a.length; ++i) {
+        for(var j=i+1; j<a.length; ++j) {
+            if(a[i] === a[j])
+                a.splice(j--, 1);
         }
     }
-    return predictions;
+
+    return a;
+    };
   }
 }());
