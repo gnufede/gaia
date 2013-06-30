@@ -84,14 +84,10 @@
   var correctionDisabled; // Temporarily diabled after reverting?
   var lastWord="";        // Last word typed
   var lastLastWord="";    // Last last word typed
+  var lastLastLastWord="";
+  var nextWord="";
 
-  var personalDict = {
-   '_': { 'Hola': 3, 'Hey':2 },
-   'Hola': {'que':3, 'soy':2 },
-   'que': {'tal':3, 'dices':2}, 
-   'Que': {'tal':3, 'dices':2}, 
-  };
-  
+
   // Terminate the worker when the keyboard is inactive for this long.
   const workerTimeout = 30000;  // 30 seconds of idle time
 
@@ -321,11 +317,7 @@
       case SEMICOLON:
         // These keys may trigger word or punctuation corrections
         handleCorrections(keycode);
-        lastLastWord = lastWord;
-        console.log('LastLast:'+lastLastWord);
-        lastWord = wordBeforeCursor();
-        console.log('last:'+lastWord);
-        updatePDict(lastLastWord, lastWord);
+        getLastWords();
         correctionDisabled = false;
         break;
 
@@ -335,7 +327,6 @@
 
       default:
         handleKey(keycode);
-        lastWord = wordBeforeCursor();
       }
     }
 
@@ -356,6 +347,55 @@
     }
 
     lastSpaceTimestamp = (keycode === SPACE) ? Date.now() : 0;
+  }
+
+  function getLastWords(){
+        var oldCursor = cursor;
+        cursor = cursor-1;
+        lastWord = wordBeforeCursor();
+        cursor = cursor-lastWord.length;
+        cursor = cursor-1;
+        var c = inputText[cursor - 1];
+        while (cursor>0 && WORDSEP.test(c)){
+            cursor = cursor-1;
+            c = inputText[cursor - 1];
+        }
+        if (cursor > 0){
+           lastLastWord = wordBeforeCursor();
+        }
+        cursor = cursor-lastLastWord.length;
+        cursor = cursor-1;
+        var c = inputText[cursor - 1];
+        while (cursor>0 && WORDSEP.test(c)){
+            cursor = cursor-1;
+            c = inputText[cursor - 1];
+        }
+        if (cursor > 0){
+          lastLastLastWord = wordBeforeCursor();
+        }
+        cursor = oldCursor;
+        console.log('LastLast:'+lastLastWord);
+        console.log('last:'+lastWord);
+        updatePDict(lastLastLastWord+' '+lastLastWord, lastWord);
+        if (cursor != inputText.length){
+          nextWord = getNextWord();
+            console.log("nextword:"+nextWord);
+          updatePDict(lastLastWord+' '+lastWord, nextWord);
+        }
+        cursor = oldCursor;
+
+  }
+
+  function getNextWord(){
+        var oldCursor = cursor;
+        var c = inputText[cursor];
+        while (!WORDSEP.test(c)){
+            cursor = cursor+1;
+            c = inputText[cursor];
+        }
+        var nextWord = wordBeforeCursor();
+        cursor = oldCursor;
+        return nextWord;
   }
 
   // Handle any key (including backspace) and do the right thing even if
@@ -439,6 +479,7 @@
   function handleBackspace() {
     // If we made a correction and haven't changed it at all yet,
     // then revert it.
+    console.log('at Backspace: '+lastLastWord+' '+lastWord);
     var len = revertFrom ? revertFrom.length : 0;
     if (len && cursor >= len &&
         inputText.substring(cursor - len, cursor) === revertFrom) {
@@ -554,7 +595,7 @@
     // these suggestions. That is, if the user has typed faster than we could
     // offer suggestions, ignore them.
     if (suggestions.length === 0 || wordBeforeCursor() !== input) {
-      keyboard.sendCandidates([getGuess(lastLastWord)]);
+      keyboard.sendCandidates(getGuess(lastLastWord+" "+lastWord));
       return;
     }
 
@@ -635,13 +676,16 @@
     // we can re-enable it now.
     correctionDisabled = false;
 
+    lastLastLastWord = lastLastWord;
     lastLastWord = lastWord;
-    console.log('LastLast'+lastLastWord);
     lastWord=word;
-    console.log('Last'+lastWord);
+    updatePDict(lastLastLastWord+" "+lastLastWord, lastWord);
+    if (cursor != inputText.length){
+      nextWord = getNextWord();
+      updatePDict(lastLastWord+" "+lastWord, nextWord);
+    }
     // Clear the suggestions
-    keyboard.sendCandidates([getGuess(lastLastWord)]);
-    updatePDict(lastLastWord, lastWord);
+    keyboard.sendCandidates(getGuess(lastLastWord+" "+lastWord));
 
     // And update the keyboard capitalization state, if necessary
     updateCapitalization();
@@ -738,51 +782,6 @@
     }
   }
 
-  
-function trim1 (str) {
-    return str.replace(/^\s\s*/, '').replace(/\s\s*$/, '');
-}
-
-
-function updatePDict(lastLastWord, lastWord){
-    lastLastWord = trim1(lastLastWord);
-    lastWord = trim1(lastWord);
-    console.log(lastLastWord+' '+lastWord);
-    if (lastLastWord === '')
-        lastLastWord = '_';
-    if ( personalDict[lastLastWord]===undefined){
-       personalDict[lastLastWord] = {};
-    }  
-    if (personalDict[lastLastWord][lastWord] === undefined){
-        personalDict[lastLastWord][lastWord] = 1;
-    }else{
-        personalDict[lastLastWord][lastWord] = personalDict[lastLastWord][lastWord]+1;
-    }
-
-}
-
-function getGuess(typedWord){
-    console.log('guessFor:'+typedWord);
-    //if (personalDict[typedWord] === undefined ||
-    if(typedWord===''){
-        typedWord = '_';
-    }
-
-    var max = 0;
-    var prediction ='';
-    var word = personalDict[typedWord];
-    for (var i in word){
-        if (word[i] > max){
-            max = word[i];
-            prediction = i;
-        }    
-        console.log('i:'+i);
-        console.log('max:'+max);
-        console.log('prediction:'+prediction);
-    }
-    return prediction;
-
-}
 
   function updateSuggestions(repeat) {
     // If the user hasn't enabled suggestions, or if they're not appropriate
@@ -929,5 +928,64 @@ function getGuess(typedWord){
 
     var c = inputText[i];
     return c === '.' || c === '?' || c === '!';
+  }
+
+  var personalDict = {
+   '_': { },
+  };
+
+  function trim1 (str) {
+    return str.replace(/^\s\s*/, '').replace(/\s\s*$/, '');
+  }
+  
+ function updatePDict(lastLastWord, lastWord){
+    try {
+      lastLastWord = trim1(lastLastWord);
+      lastWord = trim1(lastWord);
+      if (lastWord != ''){ 
+        if (lastLastWord === ''){
+          lastLastWord = '_';
+        }
+        console.log('update: '+lastLastWord+' '+lastWord);
+        if ( personalDict[lastLastWord]===undefined){
+         personalDict[lastLastWord] = {};
+        }  
+        if (personalDict[lastLastWord][lastWord] === undefined){
+          personalDict[lastLastWord][lastWord] = 1;
+        }else{
+            personalDict[lastLastWord][lastWord] = personalDict[lastLastWord][lastWord]+1;
+        }
+      }else{
+        lastWord = lastLastWord;
+      }
+    }
+    catch (e) {
+      postMessage({cmd: 'error',
+                   message: 'updatePersonalDict(): ' + e.message});
+    }
+  
+   }
+
+ function getGuess(typedWord){
+    typedWord = trim1(typedWord);
+    if(typedWord===''){
+        typedWord = '_';
+    }
+    console.log('getGuess: '+typedWord);
+
+    var predictions =[];
+    var word = personalDict[typedWord];
+    for (var i = 0; i<3; i++){
+        var max = 0;
+        for (var j in word){
+            if (predictions.indexOf(j) == -1){
+              if (word[j] > max){
+                  max = word[j];
+                  predictions.push(j);
+              }
+            }
+        }
+    }
+    return predictions;
   }
 }());
