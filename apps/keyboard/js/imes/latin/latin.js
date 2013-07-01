@@ -86,7 +86,19 @@
   var lastLastWord="";    // Last last word typed
   var lastLastLastWord="";
   var nextWord="";
+  var db_ver = 1;
+  var db = window.indexedDB;
+  var idb = null;
+  var wordRequest = db.open("personalDict", db_ver);
 
+  wordRequest.onupgradeneeded = function(event) {
+   idb = event.target.result;
+  var objectStore = idb.createObjectStore("words", { keyPath: "lastWords" });
+
+  wordRequest.onsuccess = function(event){
+  idb=event.target.result;
+  };
+};
 
   // Terminate the worker when the keyboard is inactive for this long.
   const workerTimeout = 30000;  // 30 seconds of idle time
@@ -364,25 +376,26 @@
            lastLastWord = wordBeforeCursor();
         }
         cursor = cursor-lastLastWord.length;
-        cursor = cursor-1;
-        var c = inputText[cursor - 1];
-        while (cursor>0 && WORDSEP.test(c)){
-            cursor = cursor-1;
-            c = inputText[cursor - 1];
+        if (cursor > 0){
+          cursor = cursor-1;
+          var c = inputText[cursor - 1];
+          while (cursor>0 && WORDSEP.test(c)){
+              cursor = cursor-1;
+              c = inputText[cursor - 1];
+          }
         }
         if (cursor > 0){
           lastLastLastWord = wordBeforeCursor();
         }
         cursor = oldCursor;
-        console.log('LastLast:'+lastLastWord);
-        console.log('last:'+lastWord);
-        updatePDict(lastLastLastWord+' '+lastLastWord, lastWord);
+        lastLastWord = trim1(lastLastWord);
+        lastWord = trim1(lastWord);
         updatePDict(lastLastWord, lastWord);
+        updatePDict(lastLastLastWord+" "+lastLastWord, lastWord);
         if (cursor != inputText.length){
           nextWord = getNextWord();
-            console.log("nextword:"+nextWord);
-          updatePDict(lastLastWord+' '+lastWord, nextWord);
           updatePDict(lastWord, nextWord);
+          updatePDict(lastLastWord+""+lastWord, nextWord);
         }
         cursor = oldCursor;
 
@@ -481,7 +494,6 @@
   function handleBackspace() {
     // If we made a correction and haven't changed it at all yet,
     // then revert it.
-    console.log('at Backspace: '+lastLastWord+' '+lastWord);
     var len = revertFrom ? revertFrom.length : 0;
     if (len && cursor >= len &&
         inputText.substring(cursor - len, cursor) === revertFrom) {
@@ -678,15 +690,15 @@
     // we can re-enable it now.
     correctionDisabled = false;
 
-    lastLastLastWord = lastLastWord;
-    lastLastWord = lastWord;
+    lastLastLastWord = trim1(lastLastWord);
+    lastLastWord = trim1(lastWord);
     lastWord=word;
-    updatePDict(lastLastLastWord+" "+lastLastWord, lastWord);
     updatePDict(lastLastWord, lastWord);
+    updatePDict(lastLastLastWord+" "+lastLastWord, lastWord);
     if (cursor != inputText.length){
       nextWord = getNextWord();
-      updatePDict(lastLastWord+" "+lastWord, nextWord);
       updatePDict(lastWord, nextWord);
+      updatePDict(lastLastWord+" "+lastWord, nextWord);
     }
     // Clear the suggestions
     keyboard.sendCandidates(getGuess(lastLastWord, lastWord));
@@ -934,10 +946,6 @@
     return c === '.' || c === '?' || c === '!';
   }
 
-  var personalDict = {
-   '_': { },
-  };
-
   function trim1 (str) {
     return str.replace(/^\s\s*/, '').replace(/\s\s*$/, '');
   }
@@ -951,28 +959,27 @@
         if (lastLastWord === ''){
           lastLastWord = '_';
         }
-        console.log('update: '+lastLastWord+' '+lastWord);
-        if ( personalDict[lastLastWord]===undefined){
-         personalDict[lastLastWord] = [];
-        }  
-            word_index = personalDict[lastLastWord].indexOf(lastWord);
-        if ( word_index != -1){
-            personalDict[lastLastWord].splice(word_index,1);
+        var lastLastWordDict = idb.transaction(["words"], "readwrite").objectStore("words").get(lastLastWord);
+        var wordsArr = [];
+        lastLastWordDict.onerror = function (event){};
+        lastLastWordDict.onsuccess = function (event){
+            wordsArr = lastLAstWordDict.result.words;
+        };
+
+        word_index = wordsArr.indexOf(lastWord);
+        if ( word_index > -1){
+            wordsArr.splice(word_index,1);
         }else{
-            if (personalDict[lastLastWord].length === 3){
-                personalDict[lastLastWord].pop(); 
+            if (wordsArr.length === 3){
+                wordsArr.pop();
             }
         }
-        personalDict[lastLastWord].unshift(lastWord);
-      }else{
-        lastWord = lastLastWord;
+        wordsArr.unshift(lastWord);
+        idb.transaction(["words"], "readwrite").objectStore("words").add({'lastWords':lastLastWord, 'words':wordsArr});
       }
     }
     catch (e) {
-      postMessage({cmd: 'error',
-                   message: 'updatePersonalDict(): ' + e.message});
     }
-  
    }
 
  function getGuess(lastTypedWord, typedWord){
@@ -984,32 +991,31 @@
     if(typedWord===''){
         typedWord = '_';
     }
-    console.log('getGuess: '+lastTypedWord+' '+typedWord);
-    if (personalDict[lastTypedWord+' '+typedWord] === undefined) {
-       personalDict[lastTypedWord+' '+typedWord] = [];
-    }
-    if (personalDict[typedWord] === undefined) {
-       personalDict[typedWord] = [];
-    }
-    var twoWords = personalDict[lastTypedWord+' '+typedWord].concat();
-    console.log(twoWords.length);
-    
-    if (twoWords.length < 3){
-      twoWords = arrayUnique(twoWords.concat(personalDict[typedWord]));
-    }
-    console.log(twoWords);
-    return twoWords;
+        var lastWordsDict = idb.transaction(["words"], "readwrite").objectStore("words").get(lastTypedWord+" "+typedWord);
+        var lastWordDict = idb.transaction(["words"], "readwrite").objectStore("words").get(typedWord);
+        var lastWordsArr = [];
+        var wordsArr = [];
+        lastWordDict.onsuccess = function (event){
+            wordsArr = lastWordDict.result.words;
+        };
+        lastWordsDict.onsuccess = function (event){
+            lastWordsArr = lastWordsDict.result.words;
+        };
 
-    function arrayUnique(array) {
+    return arrayAdd(
+          lastWordsArr,
+          wordsArr,
+          3);
+
+    function arrayAdd(array, array2, len) {
     var a = array.concat();
-    for(var i=0; i<a.length; ++i) {
-        for(var j=i+1; j<a.length; ++j) {
-            if(a[i] === a[j])
-                a.splice(j--, 1);
+    for (var i=0; i<array2.length && a.length < len; i++){
+        if (a.indexOf(array2[i]) === -1){
+            a.push(array2[i]);
         }
     }
-
     return a;
     };
   }
+
 }());
