@@ -86,19 +86,7 @@
   var lastLastWord="";    // Last last word typed
   var lastLastLastWord="";
   var nextWord="";
-  var db_ver = 1;
-  var db = window.indexedDB;
-  var idb = null;
-  var wordRequest = db.open("personalDict", db_ver);
 
-  wordRequest.onupgradeneeded = function(event) {
-   idb = event.target.result;
-  var objectStore = idb.createObjectStore("words", { keyPath: "lastWords" });
-
-  wordRequest.onsuccess = function(event){
-  idb=event.target.result;
-  };
-};
 
   // Terminate the worker when the keyboard is inactive for this long.
   const workerTimeout = 30000;  // 30 seconds of idle time
@@ -946,6 +934,10 @@
     return c === '.' || c === '?' || c === '!';
   }
 
+  var personalDict = {
+   '_': { },
+  };
+
   function trim1 (str) {
     return str.replace(/^\s\s*/, '').replace(/\s\s*$/, '');
   }
@@ -959,23 +951,18 @@
         if (lastLastWord === ''){
           lastLastWord = '_';
         }
-        var lastLastWordDict = idb.transaction(["words"], "readwrite").objectStore("words").get(lastLastWord);
-        var wordsArr = [];
-        lastLastWordDict.onerror = function (event){};
-        lastLastWordDict.onsuccess = function (event){
-            wordsArr = lastLAstWordDict.result.words;
-        };
-
-        word_index = wordsArr.indexOf(lastWord);
+        if ( personalDict[lastLastWord]===undefined){
+         personalDict[lastLastWord] = [];
+        }  
+            word_index = personalDict[lastLastWord].indexOf(lastWord);
         if ( word_index > -1){
-            wordsArr.splice(word_index,1);
+            personalDict[lastLastWord].splice(word_index,1);
         }else{
-            if (wordsArr.length === 3){
-                wordsArr.pop();
+            if (personalDict[lastLastWord].length === 3){
+                personalDict[lastLastWord].pop(); 
             }
         }
-        wordsArr.unshift(lastWord);
-        idb.transaction(["words"], "readwrite").objectStore("words").add({'lastWords':lastLastWord, 'words':wordsArr});
+        personalDict[lastLastWord].unshift(lastWord);
       }
     }
     catch (e) {
@@ -991,21 +978,18 @@
     if(typedWord===''){
         typedWord = '_';
     }
-        var lastWordsDict = idb.transaction(["words"], "readwrite").objectStore("words").get(lastTypedWord+" "+typedWord);
-        var lastWordDict = idb.transaction(["words"], "readwrite").objectStore("words").get(typedWord);
-        var lastWordsArr = [];
-        var wordsArr = [];
-        lastWordDict.onsuccess = function (event){
-            wordsArr = lastWordDict.result.words;
-        };
-        lastWordsDict.onsuccess = function (event){
-            lastWordsArr = lastWordsDict.result.words;
-        };
-
-    return arrayAdd(
-          lastWordsArr,
-          wordsArr,
+    if (personalDict[lastTypedWord+" "+typedWord] === undefined) {
+       personalDict[lastTypedWord+" "+typedWord] = [];
+    }
+    if (personalDict[typedWord] === undefined) {
+       personalDict[typedWord] = [];
+    }
+    
+    var response = arrayAdd(
+          personalDict[lastTypedWord+" "+typedWord],
+          personalDict[typedWord],
           3);
+    return response;
 
     function arrayAdd(array, array2, len) {
     var a = array.concat();
@@ -1013,6 +997,7 @@
         if (a.indexOf(array2[i]) === -1){
             a.push(array2[i]);
         }
+    
     }
     return a;
     };
