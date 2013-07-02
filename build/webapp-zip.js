@@ -13,6 +13,23 @@ const PR_TRUNCATE = 0x20;
 const PR_SYNC = 0x40;
 const PR_EXCL = 0x80;
 
+// Make all timestamps the same so we always generate the same
+// output zip file for the same inputs
+const DEFAULT_TIME = 0;
+
+/**
+ * Add a file to a zip file with the specified time
+ */
+function addEntryFileWithTime(zip, pathInZip, file, time) {
+  let fis = Cc['@mozilla.org/network/file-input-stream;1'].
+              createInstance(Ci.nsIFileInputStream);
+  fis.init(file, -1, -1, 0);
+
+  zip.addEntryStream(
+    pathInZip, time, Ci.nsIZipWriter.COMPRESSION_DEFAULT, fis, false);
+  fis.close();
+}
+
 /**
  * Add a file or a directory, recursively, to a zip file
  *
@@ -21,31 +38,32 @@ const PR_EXCL = 0x80;
  * @param {nsIFile}      file      file xpcom to add.
  */
 function addToZip(zip, pathInZip, file) {
+  let suffix = '@' + GAIA_DEV_PIXELS_PER_PX + 'x';
   if (file.isHidden())
     return;
 
-  // if HIDPI is enabled and the file is a bitmap let's check if there is a
-  // bigger version in the directory. If so let's ignore the file in order to
-  // use the bigger version later.
+  // If GAIA_DEV_PIXELS_PER_PX is not 1 and the file is a bitmap let's check
+  // if there is a bigger version in the directory. If so let's ignore the
+  // file in order to use the bigger version later.
   let isBitmap = /\.(png|gif|jpg)$/.test(file.path);
   if (isBitmap) {
-    let isHIDPIBitmap = /@2x/.test(file.path);
-
-    if (HIDPI == 0 && isHIDPIBitmap) {
-      // Do not save hidpi files into the zip in non-hidpi build
+    let matchResult = /@([0-9]+\.?[0-9]*)x/.exec(file.path);
+    if ((GAIA_DEV_PIXELS_PER_PX === '1' && matchResult) ||
+        (matchResult && matchResult[1] !== GAIA_DEV_PIXELS_PER_PX)) {
       return;
     }
 
-    if (HIDPI == 1) {
-      if (isHIDPIBitmap) {
-        // Save the hidpi file to the zip, stripping the name to be more generic.
-        pathInZip = pathInZip.replace('@2x', '');
+    if (GAIA_DEV_PIXELS_PER_PX !== '1') {
+      if (matchResult && matchResult[1] === GAIA_DEV_PIXELS_PER_PX) {
+        // Save the hidpi file to the zip, strip the name to be more generic.
+        pathInZip = pathInZip.replace(suffix, '');
       } else {
-        // Check if there a hidpi file. If yes, let's ignore this bitmap since it will
-        // be loaded later (or it has already been loaded, depending on how the OS
-        // organize files.
-        let file2x = new FileUtils.File(file.path.replace(/(\.[a-z]+$)/, '@2x$1'));
-        if (file2x.exists()) {
+        // Check if there a hidpi file. If yes, let's ignore this bitmap since
+        // it will be loaded later (or it has already been loaded, depending on
+        // how the OS organize files.
+        let hqfile = new FileUtils.File(
+            file.path.replace(/(\.[a-z]+$)/, suffix + '$1'));
+        if (hqfile.exists()) {
           return;
         }
       }
@@ -73,20 +91,14 @@ function addToZip(zip, pathInZip, file) {
         let l10nFile = file.parent.clone();
         l10nFile.append(file.leafName + '.' + GAIA_DEFAULT_LOCALE);
         if (l10nFile.exists()) {
-          zip.addEntryFile(pathInZip,
-                          Ci.nsIZipWriter.COMPRESSION_DEFAULT,
-                          l10nFile,
-                          false);
+          addEntryFileWithTime(zip, pathInZip, l10nFile, DEFAULT_TIME);
           return;
         }
       }
 
       let re = new RegExp('\\.html\\.' + GAIA_DEFAULT_LOCALE);
       if (!zip.hasEntry(pathInZip) && !re.test(file.leafName)) {
-        zip.addEntryFile(pathInZip,
-                        Ci.nsIZipWriter.COMPRESSION_DEFAULT,
-                        file,
-                        false);
+        addEntryFileWithTime(zip, pathInZip, file, DEFAULT_TIME);
       }
     } catch (e) {
       throw new Error('Unable to add following file in zip: ' +
@@ -98,7 +110,7 @@ function addToZip(zip, pathInZip, file) {
     debug(' +directory to zip ' + pathInZip);
 
     if (!zip.hasEntry(pathInZip))
-      zip.addEntryDirectory(pathInZip, file.lastModifiedTime, false);
+      zip.addEntryDirectory(pathInZip, DEFAULT_TIME, false);
 
     // Append a `/` at end of relative path if it isn't already here
     if (pathInZip.substr(-1) !== '/')
@@ -157,10 +169,7 @@ function customizeFiles(zip, src, dest) {
     if (zip.hasEntry(filename)) {
       zip.removeEntry(filename, false);
     }
-    zip.addEntryFile(filename,
-                    Ci.nsIZipWriter.COMPRESSION_DEFAULT,
-                    file,
-                    false);
+    addEntryFileWithTime(zip, filename, file, DEFAULT_TIME);
   });
 }
 
@@ -208,7 +217,7 @@ Gaia.webapps.forEach(function(webapp) {
     });
 
   if (webapp.sourceDirectoryName === 'system' && Gaia.distributionDir) {
-    if(getFile(Gaia.distributionDir, 'power').exists()) {
+    if (getFile(Gaia.distributionDir, 'power').exists()) {
       customizeFiles(zip, 'power', 'resources/power/');
     }
   }
@@ -328,7 +337,15 @@ Gaia.webapps.forEach(function(webapp) {
       return;
     }
 
-    addToZip(zip, '/shared/resources/' + path, file);
+    // Add not only file itself but all its hidpi-suffixed versions.
+    let fileDir = getDir(file.path.substring(0, file.path.lastIndexOf('/')));
+    let fileNameRegexp = new RegExp(
+        '^' + file.leafName.replace(/(\.[a-z]+$)/, '@?.*x?\\$1') + '$');
+    ls(fileDir, false).forEach(function(listFile) {
+      if (fileNameRegexp.test(listFile.leafName)) {
+        addToZip(zip, '/shared/resources/' + path, listFile);
+      }
+    });
 
     if (path === 'media/ringtones/' && Gaia.distributionDir &&
       getFile(Gaia.distributionDir, 'ringtones').exists()) {

@@ -17,6 +17,7 @@
  * can be defined in that.
  */
 
+
 (function(exports) {
   'use strict';
 
@@ -27,7 +28,8 @@
 
   // do not create thumbnails for too big attachments
   // (see bug 805114 for a similar issue in Gallery)
-  var MAX_THUMBNAIL_GENERATION_SIZE = 400 * 1024; // 400 KB
+  var MAX_THUMBNAIL_GENERATION_SIZE = 1.5 * 1024 * 1024; // 1.5MB
+
 
   function Attachment(blob, options) {
     options = options || {};
@@ -102,9 +104,9 @@
       };
       img.onerror = function onBlobError() {
         callback({
-          width: 0,
-          height: 0,
-          data: ''
+          width: MIN_THUMBNAIL_WIDTH_HEIGHT,
+          height: MIN_THUMBNAIL_WIDTH_HEIGHT,
+          error: true
         });
       };
     },
@@ -122,28 +124,39 @@
     render: function(readyCallback) {
       var el = document.createElement('iframe');
       var type = this.type; // attachment type
-      var self = this;
 
-      var setFrameSrc = function(type, imageURL) {
+      var setFrameSrc = (function(thumbnail) {
+        thumbnail = thumbnail || {
+          width: MIN_THUMBNAIL_WIDTH_HEIGHT,
+          height: MIN_THUMBNAIL_WIDTH_HEIGHT,
+          data: '',
+          error: false
+        };
+
+        el.width = thumbnail.width;
+        el.height = thumbnail.height;
+
         var template = {
           type: type,
-          draftClass: self.isDraft ? 'draft' : '',
-          inlineStyle: imageURL ?
-            'background: url(' + imageURL + ') no-repeat center center;' : '',
-          baseURL: location.protocol + '//' + location.host,
-          size: self.sizeForHumans
+          draftClass: this.isDraft ? 'draft' : '',
+          errorClass: thumbnail.error ? 'corrupted' : '',
+          inlineStyle: (thumbnail.data && !thumbnail.error) ?
+            'background: url(' + thumbnail.data + ') no-repeat center center;' :
+            '',
+          baseURL: location.protocol + '//' + location.host + '/',
+          size: this.sizeForHumans
         };
 
         // Attach click listeners and fire the callback when rendering is
         // complete: we can't bind `readyCallback' to the `load' event
         // listener because it would break our unit tests.
-        el.addEventListener('load', self.bubbleEvents.bind(self));
+        el.addEventListener('load', this.bubbleEvents.bind(this));
         el.src = 'data:text/html,' +
           Utils.Template('attachment-tmpl').interpolate(template);
         if (readyCallback) {
           readyCallback();
         }
-      };
+      }).bind(this);
 
       // The attachment's iFrame requires access to the parent document's
       // context so that URIs for Blobs created in the parent may resolve as
@@ -156,23 +169,14 @@
       // currently falls through this path too, we should revisit this with
       // Bug 869244 - [MMS] 'Thumbnail'/'Poster' in video attachment is needed.
       if (type === 'img' && this.size < MAX_THUMBNAIL_GENERATION_SIZE) {
-        this.getThumbnail(function(thumbnail) {
-          // TODO: store this thumbnail data (indexedDB)
-          // Bug 876467 - [MMS] generate, store, and reuse image thumbnails
-
-          // display the thumbnail instead of the default 'Image' background
-          el.width = thumbnail.width;
-          el.height = thumbnail.height;
-          setFrameSrc(type, thumbnail.data);
-        });
+        // TODO: store this thumbnail data (indexedDB)
+        // Bug 876467 - [MMS] generate, store, and reuse image thumbnails
+        this.getThumbnail(setFrameSrc);
       } else {
         // Display the default attachment placeholder for the current type: img,
         // audio, video, other.  We have to be asynchronous to keep the
         // behaviour consistent with the thumbnail case.
-        setTimeout(function() {
-          el.width = el.height = MIN_THUMBNAIL_WIDTH_HEIGHT;
-          setFrameSrc(type);
-        });
+        setTimeout(setFrameSrc);
       }
 
       // Remember: the <iframe> content is created asynchrounously.
@@ -199,4 +203,3 @@
 
   exports.Attachment = Attachment;
 }(this));
-

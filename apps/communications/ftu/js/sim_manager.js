@@ -9,9 +9,13 @@ var SimManager = {
     this.mobConn = window.navigator.mozMobileConnection;
     if (!this.mobConn)
       return;
+
+    if (!IccHelper.enabled)
+      return;
+
     _ = navigator.mozL10n.get;
 
-    this.mobConn.addEventListener('icccardlockerror',
+    IccHelper.addEventListener('icccardlockerror',
                                   this.handleUnlockError.bind(this));
     this.mobConn.addEventListener('cardstatechange',
                                   this.handleCardState.bind(this));
@@ -243,6 +247,7 @@ var SimManager = {
       UIManager.pinError.textContent = _('pinValidation');
       UIManager.pinInput.classList.add('onerror');
       UIManager.pinError.classList.remove('hidden');
+      UIManager.pinInput.focus();
       return;
     } else {
       UIManager.pinInput.classList.remove('onerror');
@@ -251,7 +256,7 @@ var SimManager = {
 
     // Unlock SIM
     var options = {lockType: 'pin', pin: pin };
-    var req = this.mobConn.unlockCardLock(options);
+    var req = IccHelper.unlockCardLock(options);
     req.onsuccess = (function sm_unlockSuccess() {
       this._unlocked = true;
       this.hideScreen();
@@ -300,7 +305,7 @@ var SimManager = {
 
     // Unlock SIM with PUK and new PIN
     var options = {lockType: 'puk', puk: pukCode, newPin: newpinCode };
-    var req = this.mobConn.unlockCardLock(options);
+    var req = IccHelper.unlockCardLock(options);
     req.onsuccess = (function sm_unlockSuccess() {
       this._unlocked = true;
       this.hideScreen();
@@ -325,6 +330,7 @@ var SimManager = {
       UIManager.xckInput.classList.add('onerror');
       UIManager.xckError.classList.remove('hidden');
       UIManager.xckError.textContent = _(lockType + 'Validation');
+      UIManager.xckInput.focus();
       return;
     } else {
       UIManager.pinInput.classList.remove('onerror');
@@ -333,7 +339,7 @@ var SimManager = {
 
     // Unlock SIM
     var options = {lockType: lockType, pin: xck };
-    var req = this.mobConn.unlockCardLock(options);
+    var req = IccHelper.unlockCardLock(options);
     req.onsuccess = (function sm_unlockSuccess() {
       this._unlocked = true;
       this.hideScreen();
